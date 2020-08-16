@@ -1,0 +1,164 @@
+---
+title: "New_Community_Model"
+author: "Caleb Kornfein"
+date: "7/10/2020"
+output:
+  word_document: default
+  pdf_document: default
+---
+# Packages
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE)
+library(readxl)
+library(car)
+library(glmnet)
+library(dplyr)
+library(caret)
+```
+
+## Loading Data
+
+```{r loading-data}
+community_train_data <- read_excel("Communities_train.xlsx")
+community_predict_data <- read_excel("Communities_predict.xlsx")
+train <- community_train_data[ , !names(community_train_data) %in%  c("PKW", "LNFZ", "SNFZ", "Krad")]
+
+PKW <- community_train_data$PKW
+SNFZ <- community_train_data$SNFZ
+LNFZ <- community_train_data$LNFZ
+KRAD <- community_train_data$Krad
+
+PKW_data <- community_train_data[ , !names(community_train_data) %in% c("LNFZ", "SNFZ", "Krad")]
+LNFZ_data <- community_train_data[ , !names(community_train_data) %in% c("PKW", "SNFZ", "Krad")]
+SNFZ_data <- community_train_data[ , !names(community_train_data) %in% c("PKW", "LNFZ", "Krad")]
+KRAD_data <- community_train_data[ , !names(community_train_data) %in% c("PKW", "LNFZ", "SNFZ")]
+```
+
+## MLR models
+
+```{r MLR-model}
+# Models no intercept
+
+PKW_model <- lm(PKW ~ .-1, data=PKW_data)
+SNFZ_model <- lm(SNFZ ~ .-1, data=SNFZ_data)
+LNFZ_model <- lm(LNFZ ~ .-1, data=LNFZ_data)
+KRAD_model <- lm(Krad ~ .-1, data=KRAD_data)
+PKW_model
+# Models with intercept
+
+PKW_model_intercept<- lm(PKW ~ ., data=PKW_data)
+SNFZ_model_intercept<- lm(SNFZ ~ ., data=SNFZ_data)
+LNFZ_model_intercept <- lm(LNFZ ~ ., data=LNFZ_data)
+KRAD_model_intercept <- lm(Krad ~ ., data=KRAD_data)
+
+# Original MLR in sample prediction
+
+PKW_original_train_prediction <- predict(PKW_model, train)
+SNFZ_original_train_prediction <- predict(SNFZ_model, train)
+LNFZ_original_train_prediction <- predict(LNFZ_model, train)
+KRAD_original_train_prediction <- predict(KRAD_model, train)
+
+# Original MLR out of sample prediction
+
+PKW_original_prediction <- predict(PKW_model, community_predict_data)
+SNFZ_original_prediction <- predict(SNFZ_model, community_predict_data)
+LNFZ_original_prediction <- predict(LNFZ_model, community_predict_data)
+KRAD_original_prediction <- predict(KRAD_model, community_predict_data)
+
+# Cross Validation
+
+train.control <- trainControl(method = "repeatedcv", number = 5, savePredictions = TRUE)
+
+set.seed(1)
+PKW_cv_model <- train(PKW ~.-1, data = PKW_data, method = "lm",
+               trControl = train.control)
+set.seed(1)
+SNFZ_cv_model <- train(SNFZ ~.-1, data = SNFZ_data, method = "lm",
+               trControl = train.control)
+set.seed(1)
+LNFZ_cv_model <- train(LNFZ ~.-1, data = LNFZ_data, method = "lm",
+               trControl = train.control)
+set.seed(1)
+KRAD_cv_model <- train(Krad ~.-1, data = KRAD_data, method = "lm",
+               trControl = train.control)
+
+# Cross Validation Results
+
+# R-squared
+PKW_cv_r2 <- PKW_cv_model$results$Rsquared
+SNFZ_cv_r2 <- SNFZ_cv_model$results$Rsquared
+LNFZ_cv_r2 <- LNFZ_cv_model$results$Rsquared
+KRAD_cv_r2 <- KRAD_cv_model$results$Rsquared
+
+# R-squared sd
+PKW_cv_r2_sd <- sd(PKW_cv_model$resample$Rsquared)
+SNFZ_cv_r2_sd <- sd(SNFZ_cv_model$resample$Rsquared)
+LNFZ_cv_r2_sd <- sd(LNFZ_cv_model$resample$Rsquared)
+KRAD_cv_r2_sd <- sd(KRAD_cv_model$resample$Rsquared)
+
+# R-squared values
+# PKW:  No int: .6797, int: .6401
+# SNFZ: No int: .4824, int: .4604 
+# LNFZ: No int: .6305, int: .5829
+# KRAD: No int: .6690, int: .6242
+
+# Percent of observations with literature value less than overall MLR RMSE
+
+PKW_MLR_percent <- sum(length(PKW[PKW<97010338]))/length(PKW)
+SNFZ_MLR_percent <- sum(length(SNFZ[SNFZ<10779736]))/length(SNFZ)
+LNFZ_MLR_percent <- sum(length(LNFZ[LNFZ<4490571]))/length(LNFZ)
+KRAD_MLR_percent <- sum(length(KRAD[KRAD<1741943]))/length(KRAD)
+
+# Percent of observations with literature value less than overall XGBoost RMSE
+
+PKW_XGB_percent <- sum(length(PKW[PKW<86526416]))/length(PKW)
+SNFZ_XGB_percent <- sum(length(SNFZ[SNFZ<9412810]))/length(SNFZ)
+LNFZ_XGB_percent <- sum(length(LNFZ[LNFZ<3741482]))/length(LNFZ)
+KRAD_XGB_percent <- sum(length(KRAD[KRAD<1347808]))/length(KRAD)
+```
+
+## No intercept MLR model checks
+
+```{r MLR_checks}
+# No intercept
+
+# residual histograms
+par(mfrow=c(2,2))
+hist(resid(PKW_model), col = "steelblue", xlab = "Residual Value (km/a)", main = "Histogram of PC MLR residuals")
+hist(resid(SNFZ_model), col = "steelblue", xlab = "Residual Value (km/a)",  main = "Histogram of HDV MLR residuals")
+hist(resid(LNFZ_model), col = "steelblue", xlab = "Residual Value (km/a)",  main = "Histogram of LDV MLR residuals")
+hist(resid(KRAD_model), col = "steelblue", xlab = "Residual Value (km/a)",  main = "Histogram of MC MLR residuals")
+quartz.save(file = "Residual_histograms.tiff", type = "tiff")
+dev.off()
+
+# residuals vs literature road mileages
+par(mfrow = c(2,2))
+plot(y=resid(PKW_model), x = community_train_data$PKW, col = "steelblue", ylab = "Residual Value", xlab = "PC Literature Road Mileages (Vehicle km/a)")
+abline(a = 0, b = 0)
+plot(y=resid(SNFZ_model), x = community_train_data$SNFZ, col = "steelblue", ylab = "Residual Value", xlab = "HDV Literature Road Mileages (Vehicle km/a)")
+abline(a = 0, b = 0)
+plot(y=resid(LNFZ_model), x = community_train_data$LNFZ, col = "steelblue", ylab = "Residual Value", xlab = "LDV Literature Road Mileages (Vehicle km/a)")
+abline(a = 0, b = 0)
+plot(y=resid(KRAD_model), x = community_train_data$Krad, col = "steelblue", ylab = "Residual Value", xlab = "MC Literature Road Mileages (Vehicle km/a)")
+abline(a = 0, b = 0)
+quartz.save(file = "Residuals_vs_lit_values.tiff", type = "tiff")
+dev.off()
+
+# qq plots
+par(mfrow=c(2,2))
+qqnorm(resid(PKW_model), main = "PKW Normal QQ Plot")
+qqnorm(resid(SNFZ_model), main = "SNFZ Normal QQ Plot")
+qqnorm(resid(LNFZ_model), main = "LNFZ Normal QQ Plot")
+qqnorm(resid(KRAD_model), main = "KRAD Normal QQ Plot")
+
+# VIFs
+print("VIFs are: ")
+car::vif(PKW_model_intercept)
+
+sprintf("Mean residual value for PKW mlr model is: %f", mean(resid(PKW_model)))
+sprintf("Mean residual value for SNFZ mlr model is: %f", mean(resid(SNFZ_model)))
+sprintf("Mean residual value for LNFZ mlr model is: %f", mean(resid(LNFZ_model)))
+sprintf("Mean residual value for KRAD mlr model is: %f", mean(resid(KRAD_model)))
+```
+

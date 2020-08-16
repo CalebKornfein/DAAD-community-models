@@ -1,0 +1,18 @@
+"0","knitr::opts_chunk$set(echo = FALSE)"
+"0","library(readxl)"
+"0","library(car)"
+"0","library(glmnet)"
+"0","library(xgboost)"
+"2","
+Attaching package: ‘xgboost’
+
+"
+"2","The following object is masked from ‘package:dplyr’:
+
+    slice
+
+"
+"0","library(magrittr)"
+"0","library(Matrix)"
+"0","library(dplyr)"
+"0","library(caret)"

@@ -1,0 +1,343 @@
+---
+title: "XGBoost Test"
+author: "Caleb Kornfein"
+date: "7/12/2020"
+output: pdf_document
+---
+
+## Packages
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE)
+library(readxl)
+library(car)
+library(glmnet)
+library(xgboost)
+library(magrittr)
+library(Matrix)
+library(dplyr)
+library(caret)
+```
+
+## Loading Data
+
+```{r loading-data}
+community_train_data <- read_excel("Communities_train.xlsx")
+community_predict_data <- read_excel("Communities_predict.xlsx")
+
+#creating train and test
+set.seed(1)
+n = nrow(community_train_data)
+split = sample(c(TRUE, FALSE), n, replace=TRUE, prob=c(0.75, 0.25))
+
+train <- community_train_data[split, ]
+test <- community_train_data[!split, ]
+
+xgb_train <- train[ , !names(train) %in% c("LNFZ", "SNFZ", "Krad", "PKW")]
+xgb_test <- test[ , !names(test) %in% c("LNFZ", "SNFZ", "Krad", "PKW")]
+overall <- community_train_data[ , !names(community_train_data) %in% c("LNFZ", "SNFZ", "Krad", "PKW")]
+xgb_train_matrix <- xgb.DMatrix(data = data.matrix(xgb_train))
+
+# train objects
+
+PKW_train_label <- train$PKW
+LNFZ_train_label <- train$LNFZ
+SNFZ_train_label <- train$SNFZ
+KRAD_train_label <- train$Krad
+
+PKW_train_matrix <- xgb.DMatrix(data = data.matrix(xgb_train), label = PKW_train_label)
+LNFZ_train_matrix <- xgb.DMatrix(data = data.matrix(xgb_train), label = LNFZ_train_label)
+SNFZ_train_matrix <- xgb.DMatrix(data = data.matrix(xgb_train), label = SNFZ_train_label)
+KRAD_train_matrix <- xgb.DMatrix(data = data.matrix(xgb_train), label = KRAD_train_label)
+
+# test objects
+
+PKW_test_label <- test$PKW
+LNFZ_test_label <- test$LNFZ
+SNFZ_test_label <- test$SNFZ
+KRAD_test_label <- test$Krad
+
+PKW_test_matrix <- xgb.DMatrix(data = data.matrix(xgb_test), label = PKW_test_label)
+LNFZ_test_matrix <- xgb.DMatrix(data = data.matrix(xgb_test), label = LNFZ_test_label)
+SNFZ_test_matrix <- xgb.DMatrix(data = data.matrix(xgb_test), label = SNFZ_test_label)
+KRAD_test_matrix <- xgb.DMatrix(data = data.matrix(xgb_test), label = KRAD_test_label)
+
+# combined
+
+PKW_label <- community_train_data$PKW
+LNFZ_label <- community_train_data$LNFZ
+SNFZ_label <- community_train_data$SNFZ
+KRAD_label <- community_train_data$Krad
+
+PKW_matrix <- xgb.DMatrix(data = data.matrix(overall), label = PKW_label)
+LNFZ_matrix <- xgb.DMatrix(data = data.matrix(overall), label = LNFZ_label)
+SNFZ_matrix <- xgb.DMatrix(data = data.matrix(overall), label = SNFZ_label)
+KRAD_matrix <- xgb.DMatrix(data = data.matrix(overall), label = KRAD_label)
+```
+
+# Parameter grids
+
+```{r loading-data}
+# parameters
+xgb_grid_params <- expand.grid(nrounds = c(50, 200, 500),
+                       max_depth = c(2, 3, 4, 6),
+                       colsample_bytree = c(.5, .75, 1),
+                       eta = c(.01, .03, .05, .07, .1, .3),
+                       gamma= c(0, 3, 6, 9),
+                       min_child_weight = 1,
+                       subsample = c(.5, .75, 1))
+
+xgb_train_control = trainControl(
+  method = "cv",
+  number = 5,  
+  allowParallel = TRUE,
+  verboseIter = FALSE,
+  returnData = FALSE)
+
+xgb_params <- list("objective" = "reg:squarederror",
+                   "eval_metric" = "rmse")
+
+PKW_watchlist <- list(train = PKW_train_matrix, test = PKW_test_matrix, overall = PKW_matrix)
+LNFZ_watchlist <- list(train = LNFZ_train_matrix, test = LNFZ_test_matrix, overall = LNFZ_matrix)
+SNFZ_watchlist <- list(train = SNFZ_train_matrix, test = SNFZ_test_matrix, overall = SNFZ_matrix)
+KRAD_watchlist <- list(train = KRAD_train_matrix, test = KRAD_test_matrix, overall = KRAD_matrix)
+```
+
+# PKW
+
+```{r PKW-xgb}
+# Caution! For each vehicle class, the XGBoost model 1's which are for parameter testing may take a long time to run. On a 2017 Macbook Air with a 1.8 GHz Intel Core I5, each parameter testing xgboost model took approximately 35 - 40 minutes. For each vehicle class, the 2nd model already is loaded with the optimal parameters based off of the 1st model.
+
+# eXtreme Gradient BOOSTing model 1: parameter testing
+set.seed(1) 
+PKW_xgb_model = train(
+  x = xgb_train_matrix,
+  y = PKW_train_label,
+  trControl = xgb_train_control,
+  tuneGrid = xgb_grid_params,
+  method = "xgbTree",
+  objective = "reg:squarederror"
+)
+
+# eXtreme Gradient BOOSTing model 2: finding optimal number of iterations
+set.seed(1)
+PKW_xgb_model_rounds = xgb.train(
+  data = PKW_train_matrix,
+  params = xgb_params,
+  nrounds = 1000,
+  eta = .1,
+  watchlist = PKW_watchlist,
+  colsample_bytree = .75,
+  max_depth = 2,
+  gamma = 3,
+  subsample = .5,
+)
+
+# plotting
+PKW_error <-data.frame(PKW_xgb_model_rounds$evaluation_log)
+plot(PKW_error$iter, PKW_error$train_rmse, col = "blue", xlab = "Iterations", ylab = "RMSE", main = "PC")
+points(PKW_error$iter, PKW_error$test_rmse, col = "red")
+abline(a = 97010338, b = 0, col = "black", pch = 19, lwd = 4)
+legend("topright", legend= c("MLR", "XGB Train", "XGB Test"), col=c("black", "blue", "red"), lty=1:2)
+PKW_error[PKW_error$test_rmse == min(PKW_error$test_rmse),]
+PKW_iter <- PKW_error[PKW_error$test_rmse == min(PKW_error$test_rmse),]$iter
+quartz.save(file = "PKW_iters.tiff", type = "tiff")
+dev.off()
+
+# final model and analysis
+set.seed(1)
+PKW_xgb_model_rounds_final = xgb.train(
+  data = PKW_train_matrix,
+  params = xgb_params,
+  nrounds = PKW_iter,
+  eta = .1,
+  watchlist = PKW_watchlist,
+  colsample_bytree = .75,
+  max_depth = 2,
+  gamma = 3,
+  subsample = 0.5
+)
+PKW_importance <- xgb.importance(colnames(PKW_train_matrix), model = PKW_xgb_model_rounds_final)
+print(PKW_importance)
+xgb.plot.importance(PKW_importance)
+PKW_xgb_train_rmse <- PKW_error$train_rmse[PKW_iter]
+PKW_xgb_test_rmse <- min(PKW_error$test_rmse)
+PKW_xgb_overall_rmse <- PKW_error$overall_rmse[PKW_iter]
+```
+
+# LNFZ
+
+```{r LNFZ-xgb}
+set.seed(1) 
+# eXtreme Gradient BOOSTing model 1: parameter testing
+LNFZ_xgb_model = train(
+  x = xgb_train_matrix,
+  y = LNFZ_train_label,
+  trControl = xgb_train_control,
+  tuneGrid = xgb_grid_params,
+  method = "xgbTree",
+  objective = "reg:squarederror"
+)
+
+# eXtreme Gradient BOOSTing model 2: finding the optimal number of iterations
+set.seed(1)
+LNFZ_xgb_model_rounds = xgb.train(
+  data = LNFZ_train_matrix,
+  params = xgb_params,
+  nrounds = 1000,
+  eta = .03,
+  watchlist = LNFZ_watchlist,
+  colsample_bytree = .5,
+  max_depth = 2,
+  gamma = 3,
+  subsample = .5
+)
+
+# plotting
+LNFZ_error <-data.frame(LNFZ_xgb_model_rounds$evaluation_log)
+plot(LNFZ_error$iter, LNFZ_error$train_rmse, col = "blue", xlab = "Iterations", ylab = "RMSE", main = "LDV")
+points(LNFZ_error$iter, LNFZ_error$test_rmse, col = "red")
+abline(a = 4490571, b = 0, col = "black", pch = 19, lwd = 4)
+legend("topright", legend= c("MLR", "XGB Train", "XGB Test"), col=c("black", "blue", "red"), lty=1:2)
+LNFZ_iter <- LNFZ_error[LNFZ_error$test_rmse == min(LNFZ_error$test_rmse),]$iter
+quartz.save(file = "LNFZ_iters.tiff", type = "tiff")
+dev.off()
+
+# final model and analysis
+set.seed(1)
+LNFZ_xgb_model_rounds_final <- xgb.train(
+  data = LNFZ_train_matrix,
+  params = xgb_params,
+  nrounds = LNFZ_iter,
+  eta = .03,
+  watchlist = LNFZ_watchlist,
+  colsample_bytree = .5,
+  max_depth = 2,
+  gamma = 3,
+  subsample = .5
+)
+LNFZ_importance <- xgb.importance(colnames(LNFZ_train_matrix), model = LNFZ_xgb_model_rounds_final)
+print(LNFZ_importance)
+xgb.plot.importance(LNFZ_importance)
+LNFZ_xgb_train_rmse <- LNFZ_error$train_rmse[LNFZ_iter]
+LNFZ_xgb_test_rmse <- min(LNFZ_error$test_rmse)
+LNFZ_xgb_overall_rmse <- LNFZ_error$overall_rmse[LNFZ_iter]
+```
+
+# SNFZ
+
+```{r SNFZ-xgb}
+set.seed(1) 
+# eXtreme Gradient BOOSTing model 1: parameter testing
+SNFZ_xgb_model = train(
+  x = xgb_train_matrix,
+  y = SNFZ_train_label,
+  trControl = xgb_train_control,
+  tuneGrid = xgb_grid_params,
+  method = "xgbTree",
+  objective = "reg:squarederror"
+)
+
+# eXtreme Gradient BOOSTing model 2: finding the optimal number of iterations
+set.seed(1)
+SNFZ_xgb_model_rounds = xgb.train(
+  data = SNFZ_train_matrix,
+  params = xgb_params,
+  nrounds = 1000,
+  eta = .1,
+  watchlist = SNFZ_watchlist,
+  colsample_bytree = .5,
+  max_depth = 2,
+  gamma = 0,
+  subsample = 0.5
+)
+
+# plotting
+SNFZ_error <-data.frame(SNFZ_xgb_model_rounds$evaluation_log)
+plot(SNFZ_error$iter, SNFZ_error$train_rmse, col = "blue", xlab = "Iterations", ylab = "RMSE", main = "HDV")
+points(SNFZ_error$iter, SNFZ_error$test_rmse, col = "red")
+abline(a = 10779736, b = 0, col = "black", pch = 19, lwd = 4)
+legend("topright", legend= c("MLR", "XGB Train", "XGB Test"), col=c("black", "blue", "red"), lty=1:2)
+SNFZ_iter <- SNFZ_error[SNFZ_error$test_rmse == min(SNFZ_error$test_rmse),]$iter
+quartz.save(file = "SNFZ_iters.tiff", type = "tiff")
+dev.off()
+
+# final model and analysis
+set.seed(1)
+SNFZ_xgb_model_rounds_final = xgb.train(
+  data = SNFZ_train_matrix,
+  params = xgb_params,
+  nrounds = SNFZ_iter,
+  eta = .1,
+  watchlist = SNFZ_watchlist,
+  colsample_bytree = .5,
+  max_depth = 2,
+  gamma = 0,
+  subsample = 0.5
+)
+SNFZ_importance <- xgb.importance(colnames(SNFZ_train_matrix), model = SNFZ_xgb_model_rounds_final)
+print(SNFZ_importance)
+xgb.plot.importance(SNFZ_importance)
+SNFZ_xgb_train_rmse <- SNFZ_error$train_rmse[SNFZ_iter]
+SNFZ_xgb_test_rmse <- min(SNFZ_error$test_rmse)
+SNFZ_xgb_overall_rmse <- SNFZ_error$overall_rmse[SNFZ_iter]
+```
+
+# KRAD
+
+```{r KRAD-xgb}
+set.seed(1) 
+# eXtreme Gradient BOOSTing model 1: parameter testing
+KRAD_xgb_model = train(
+  x = xgb_train_matrix,
+  y = KRAD_train_label,
+  trControl = xgb_train_control,
+  tuneGrid = xgb_grid_params,
+  method = "xgbTree",
+  objective = "reg:squarederror"
+)
+
+# eXtreme Gradient BOOSTing model 2: finding the optimal number of iterations
+set.seed(1)
+KRAD_xgb_model_rounds = xgb.train(
+  data = KRAD_train_matrix,
+  params = xgb_params,
+  nrounds = 1000,
+  eta = .05,
+  watchlist = KRAD_watchlist,
+  colsample_bytree = .5,
+  max_depth = 3,
+  gamma = 9,
+  subsample = 1
+)
+
+# plotting
+KRAD_error <-data.frame(KRAD_xgb_model_rounds$evaluation_log)
+plot(KRAD_error$iter, KRAD_error$train_rmse, col = "blue", xlab = "Iterations", ylab = "RMSE", main = "MC")
+points(KRAD_error$iter, KRAD_error$test_rmse, col = "red")
+abline(a = 1741943, b = 0, col = "black", pch = 19, lwd = 4)
+legend("topright", legend= c("MLR", "XGB Train", "XGB Test"), col=c("black", "blue", "red"), lty=1:2)
+KRAD_iter <- KRAD_error[KRAD_error$test_rmse == min(KRAD_error$test_rmse),]$iter
+quartz.save(file = "KRAD_iters.tiff", type = "tiff")
+dev.off()
+
+# final model and analysis
+set.seed(1)
+KRAD_xgb_model_rounds_final = xgb.train(
+  data = KRAD_train_matrix,
+  params = xgb_params,
+  nrounds = KRAD_iter,
+  eta = .05,
+  watchlist = KRAD_watchlist,
+  colsample_bytree = .5,
+  max_depth = 3,
+  gamma = 9,
+  subsample = 1
+)
+KRAD_importance <- xgb.importance(colnames(KRAD_train_matrix), model = KRAD_xgb_model_rounds_final)
+print(KRAD_importance)
+xgb.plot.importance(KRAD_importance)
+KRAD_xgb_train_rmse <- KRAD_error$train_rmse[KRAD_iter]
+KRAD_xgb_test_rmse <- min(KRAD_error$test_rmse)
+KRAD_xgb_overall_rmse <- KRAD_error$overall_rmse[KRAD_iter]
+```

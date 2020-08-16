@@ -1,0 +1,25 @@
+{
+    "id": "FF4E54BA",
+    "path": "~/Desktop/Community Models/XGBoost Models.Rmd",
+    "project_path": "XGBoost Models.Rmd",
+    "type": "r_markdown",
+    "hash": "4291311143",
+    "contents": "",
+    "dirty": true,
+    "created": 1595551883433.0,
+    "source_on_save": false,
+    "relative_order": 2,
+    "properties": {
+        "last_setup_crc32": "",
+        "cursorPosition": "47,51",
+        "scrollLine": "39"
+    },
+    "folds": "",
+    "lastKnownWriteTime": 1597122786,
+    "encoding": "UTF-8",
+    "collab_server": "",
+    "source_window": "",
+    "last_content_update": 1597267329099,
+    "read_only": false,
+    "read_only_alternatives": []
+}
